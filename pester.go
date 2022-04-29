@@ -27,7 +27,7 @@ const (
 	contentTypeFormURLEncoded = "application/x-www-form-urlencoded"
 )
 
-//ErrUnexpectedMethod occurs when an http.Client method is unable to be mapped from a calling method in the pester client
+// ErrUnexpectedMethod occurs when an http.Client method is unable to be mapped from a calling method in the pester client
 var ErrUnexpectedMethod = errors.New("unexpected client method, must be one of Do, Get, Head, Post, or PostFrom")
 
 // ErrReadingBody happens when we cannot read the body bytes
@@ -52,6 +52,7 @@ type Client struct {
 	Concurrency    int
 	MaxRetries     int
 	Backoff        BackoffStrategy
+	Retry          RetryStrategy
 	KeepLog        bool
 	LogHook        LogHook
 	ContextLogHook ContextLogHook
@@ -111,6 +112,7 @@ func New() *Client {
 		Concurrency:    DefaultClient.Concurrency,
 		MaxRetries:     DefaultClient.MaxRetries,
 		Backoff:        DefaultClient.Backoff,
+		Retry:          DefaultClient.Retry,
 		ErrLog:         DefaultClient.ErrLog,
 		wg:             &sync.WaitGroup{},
 		RetryOnHTTP429: false,
@@ -135,8 +137,12 @@ type ContextLogHook func(ctx context.Context, e ErrEntry)
 // BackoffStrategy is used to determine how long a retry request should wait until attempted
 type BackoffStrategy func(retry int) time.Duration
 
+// RetryStrategy is used for determining when to retry request based on the response status code.
+// If this function returns true, attempt is considered successful and no more attempts are performed.
+type RetryStrategy func(status int, retryOnHTTP429 bool) bool
+
 // DefaultClient provides sensible defaults
-var DefaultClient = &Client{Concurrency: 1, MaxRetries: 3, Backoff: DefaultBackoff, ErrLog: []ErrEntry{}}
+var DefaultClient = &Client{Concurrency: 1, MaxRetries: 3, Backoff: DefaultBackoff, Retry: DefaultRetryStrategy, ErrLog: []ErrEntry{}}
 
 // DefaultBackoff always returns 1 second
 func DefaultBackoff(_ int) time.Duration {
@@ -163,6 +169,14 @@ func LinearBackoff(i int) time.Duration {
 // with +/- 0-33% to prevent sychronized reuqests.
 func LinearJitterBackoff(i int) time.Duration {
 	return jitter(i)
+}
+
+// DefaultRetryStrategy returns true in the following case:
+//  - status code is lower than http.StatusInternalServerError and
+//  - status is not http.StatusTooManyRequests or status is http.StatusTooManyRequests with retryOnHTTP429 flag set false
+func DefaultRetryStrategy(status int, retryOnHTTP429 bool) bool {
+	return status < http.StatusInternalServerError &&
+		(status != http.StatusTooManyRequests || (status == http.StatusTooManyRequests && !retryOnHTTP429))
 }
 
 // jitter keeps the +/- 0-33% logic in one place
@@ -339,8 +353,8 @@ func (c *Client) pester(p params) (*http.Response, error) {
 
 				resp, err := httpClient.Do(req)
 				// Early return if we have a valid result
-				// Only retry (ie, continue the loop) on 5xx status codes and 429
-				if err == nil && resp.StatusCode < http.StatusInternalServerError && (resp.StatusCode != http.StatusTooManyRequests || (resp.StatusCode == http.StatusTooManyRequests && !c.RetryOnHTTP429)) {
+				// Only retry (ie, continue the loop) when Retry returns false.
+				if err == nil && c.Retry(resp.StatusCode, c.RetryOnHTTP429) {
 					multiplexCh <- result{resp: resp, err: err, req: n, retry: i}
 					return
 				}
@@ -366,7 +380,7 @@ func (c *Client) pester(p params) (*http.Response, error) {
 					return
 				}
 
-				//If the request has been cancelled, skip retries
+				// If the request has been cancelled, skip retries
 				select {
 				case <-req.Context().Done():
 					multiplexCh <- result{resp: resp, err: req.Context().Err()}
