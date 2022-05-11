@@ -63,7 +63,9 @@ type Client struct {
 	wg *sync.WaitGroup
 
 	sync.Mutex
-	ErrLog         []ErrEntry
+	ErrLog []ErrEntry
+
+	// Deprecated: for custom retry logic, use RetryStrategy
 	RetryOnHTTP429 bool
 }
 
@@ -109,13 +111,12 @@ func init() {
 // New constructs a new DefaultClient with sensible default values
 func New() *Client {
 	return &Client{
-		Concurrency:    DefaultClient.Concurrency,
-		MaxRetries:     DefaultClient.MaxRetries,
-		Backoff:        DefaultClient.Backoff,
-		Retry:          DefaultClient.Retry,
-		ErrLog:         DefaultClient.ErrLog,
-		wg:             &sync.WaitGroup{},
-		RetryOnHTTP429: false,
+		Concurrency: DefaultClient.Concurrency,
+		MaxRetries:  DefaultClient.MaxRetries,
+		Backoff:     DefaultClient.Backoff,
+		Retry:       DefaultClient.Retry,
+		ErrLog:      DefaultClient.ErrLog,
+		wg:          &sync.WaitGroup{},
 	}
 }
 
@@ -523,7 +524,11 @@ func (c *Client) PostForm(url string, data url.Values) (resp *http.Response, err
 
 // set RetryOnHTTP429 for clients,
 func (c *Client) SetRetryOnHTTP429(flag bool) {
-	c.RetryOnHTTP429 = flag
+	if flag {
+		c.Retry = defaultRetryStrategyWith429
+	} else {
+		c.Retry = DefaultRetryStrategy
+	}
 }
 
 ////////////////////////////////////////
