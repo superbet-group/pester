@@ -177,7 +177,7 @@ func TestMaxRetriesWithDefaultClientAndCustomRetryStrategy(t *testing.T) {
 	c.Concurrency = 3
 	c.KeepLog = true
 	c.MaxRetries = 5
-	c.Retry = func(status int, _ bool) bool {
+	c.Retry = func(status int) bool {
 		return status >= http.StatusMultipleChoices
 	}
 
