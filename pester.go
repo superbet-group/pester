@@ -175,8 +175,13 @@ func LinearJitterBackoff(i int) time.Duration {
 //  - status code is lower than http.StatusInternalServerError and it's not http.StatusTooManyRequests
 //  - status code is lower than http.StatusTooManyRequests and if status is http.StatusTooManyRequests, retryOnHTTP429 flag is false
 func DefaultRetryStrategy(status int, retryOnHTTP429 bool) bool {
-	return status < http.StatusInternalServerError &&
-		(status != http.StatusTooManyRequests || (status == http.StatusTooManyRequests && !retryOnHTTP429))
+	if status < http.StatusInternalServerError && status != http.StatusTooManyRequests {
+		return false
+	}
+	if status < http.StatusInternalServerError && status == http.StatusTooManyRequests && !retryOnHTTP429 {
+		return false
+	}
+	return true
 }
 
 // jitter keeps the +/- 0-33% logic in one place
