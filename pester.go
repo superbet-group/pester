@@ -137,9 +137,9 @@ type ContextLogHook func(ctx context.Context, e ErrEntry)
 // BackoffStrategy is used to determine how long a retry request should wait until attempted
 type BackoffStrategy func(retry int) time.Duration
 
-// RetryStrategy is used for determining when to retry request based on the response status code.
-// If this function returns true, attempt is considered unsuccessful and additional attempt is performed.
-type RetryStrategy func(status int, retryOnHTTP429 bool) bool
+// RetryStrategy is used for determining when to retry request based on the response status code. If
+// this function returns true, request is considered unsuccessful and additional attempt is performed.
+type RetryStrategy func(status int) bool
 
 // DefaultClient provides sensible defaults
 var DefaultClient = &Client{Concurrency: 1, MaxRetries: 3, Backoff: DefaultBackoff, Retry: DefaultRetryStrategy, ErrLog: []ErrEntry{}}
@@ -171,17 +171,17 @@ func LinearJitterBackoff(i int) time.Duration {
 	return jitter(i)
 }
 
-// DefaultRetryStrategy returns false (request is considered successful) in the following case:
-//  - status code is lower than http.StatusInternalServerError and it's not http.StatusTooManyRequests
-//  - status code is lower than http.StatusTooManyRequests and if status is http.StatusTooManyRequests, retryOnHTTP429 flag is false
-func DefaultRetryStrategy(status int, retryOnHTTP429 bool) bool {
-	if status < http.StatusInternalServerError && status != http.StatusTooManyRequests {
-		return false
-	}
-	if status < http.StatusInternalServerError && status == http.StatusTooManyRequests && !retryOnHTTP429 {
-		return false
-	}
-	return true
+// DefaultRetryStrategy returns true (request is retried) when the status code is equal to or higher
+// than http.StatusInternalServerError.
+func DefaultRetryStrategy(status int) bool {
+	return status >= http.StatusInternalServerError
+}
+
+// defaultRetryStrategyWith429 returns true (request is retried) when the status code is equal to or
+// higher than http.StatusTooManyRequests or if status is http.StatusTooManyRequests. This strategy
+// is used when setting Client.SetRetryOnHTTP429.
+func defaultRetryStrategyWith429(status int) bool {
+	return status >= http.StatusInternalServerError || status == http.StatusTooManyRequests
 }
 
 // jitter keeps the +/- 0-33% logic in one place
@@ -359,7 +359,7 @@ func (c *Client) pester(p params) (*http.Response, error) {
 				resp, err := httpClient.Do(req)
 				// Early return if we have a valid result
 				// Only retry (ie, continue the loop) when Retry returns true.
-				if err == nil && !c.Retry(resp.StatusCode, c.RetryOnHTTP429) {
+				if err == nil && !c.Retry(resp.StatusCode) {
 					multiplexCh <- result{resp: resp, err: err, req: n, retry: i}
 					return
 				}
