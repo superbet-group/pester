@@ -180,7 +180,7 @@ func DefaultRetryStrategy(status int) bool {
 
 // defaultRetryStrategyWith429 returns true (request is retried) when the status code is equal to or
 // higher than http.StatusTooManyRequests or if status is http.StatusTooManyRequests. This strategy
-// is used when setting Client.SetRetryOnHTTP429.
+// is used when RetryOnHTTP429 is set to `true`.
 func defaultRetryStrategyWith429(status int) bool {
 	return status >= http.StatusInternalServerError || status == http.StatusTooManyRequests
 }
