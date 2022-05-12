@@ -170,6 +170,41 @@ func TestMaxRetriesConcurrentRequestsWith429DefaultClient(t *testing.T) {
 	}
 }
 
+func TestMaxRetriesWithDefaultClientAndCustomRetryStrategy(t *testing.T) {
+	t.Parallel()
+
+	c := New()
+	c.Concurrency = 3
+	c.KeepLog = true
+	c.MaxRetries = 5
+	c.Retry = func(status int) bool {
+		return status >= http.StatusMultipleChoices
+	}
+
+	port, err := serverWith400()
+	if err != nil {
+		t.Fatal("unable to start server", err)
+	}
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+
+	response, err := c.Get(url)
+	if err != nil {
+		t.Fatal("unable to GET", err)
+	}
+	c.Wait()
+
+	response.Body.Close()
+	c.Wait()
+
+	// in the event of an error, let's see what the logs were
+	t.Log("\n", c.LogString())
+
+	if got, want := c.LogErrCount(), c.Concurrency*c.MaxRetries; got != want {
+		t.Errorf("got %d attempts, want %d", got, want)
+	}
+}
+
 func TestMaxRetriesConcurrentRequestsWith400(t *testing.T) {
 	t.Parallel()
 
@@ -389,7 +424,7 @@ func TestCustomLogHook(t *testing.T) {
 	errorLines := []ErrEntry{}
 
 	c := New()
-	//c.KeepLog = true
+	// c.KeepLog = true
 	c.MaxRetries = expectedRetries
 	c.Backoff = func(_ int) time.Duration {
 		return 10 * time.Microsecond
@@ -461,7 +496,7 @@ func TestDefaultLogHook(t *testing.T) {
 	errorLines := 0
 
 	c := New()
-	//c.KeepLog = true
+	// c.KeepLog = true
 	c.MaxRetries = 5
 	c.Backoff = func(_ int) time.Duration {
 		return 10 * time.Microsecond
@@ -724,7 +759,7 @@ func TestRetriesNotAttemptedIfContextIsCancelled(t *testing.T) {
 	c.KeepLog = true
 	c.Backoff = ExponentialBackoff
 
-	//Cancel the context in another routine (eg: user interrupt)
+	// Cancel the context in another routine (eg: user interrupt)
 	go func() {
 		cancel()
 		t.Logf("\n%d - cancelled", time.Now().Unix())
