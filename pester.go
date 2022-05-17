@@ -222,9 +222,9 @@ func (c *Client) copyBody(src io.ReadCloser) ([]byte, error) {
 // the originalBody. This is used to refresh http.Requests that may have had their
 // bodies closed already.
 func resetBody(request *http.Request, originalBody []byte) {
-	request.Body = io.NopCloser(bytes.NewBuffer(originalBody))
+	request.Body = ioutil.NopCloser(bytes.NewBuffer(originalBody))
 	request.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewBuffer(originalBody)), nil
+		return ioutil.NopCloser(bytes.NewBuffer(originalBody)), nil
 	}
 }
 
